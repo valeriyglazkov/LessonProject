@@ -1,46 +1,36 @@
-import psycopg2
+import pytest
+
+from app_driver.db_cleaner import DBCleaner
+from app_driver.db_connection import DbConnector
 from config import APP_BASE_URL, DB_CONNECTION_PARAMS
-from test_data.create_user import SCENARIO
+from test_data.context import TestContext
+from test_data.create_user import SUCCESS_CREATE_USER
+from test_data.data_helper import assert_login_getAdmin
 from app_driver.owf_http_client import OwfHttpClient
-from app_driver.user_repository import UserRepository
+from test_data.models.view_models import *
 
 
-class TestUserCreatedSuccessfully:
-    """Успешное создание нового юзера"""
+@pytest.mark.incremental
+@pytest.mark.parametrize('test_data', SUCCESS_CREATE_USER, scope="class")
+class TestSuccessCreateUser:
 
-    def setup(self):
-        """Установка соединения с БД"""
-        self.client = OwfHttpClient(APP_BASE_URL)
-        self.connection = psycopg2.connect(
-            dbname=DB_CONNECTION_PARAMS.get('dbname'),
-            user=DB_CONNECTION_PARAMS.get('user'),
-            password=DB_CONNECTION_PARAMS.get('password'),
-            host=DB_CONNECTION_PARAMS.get('host')
-        )
-        self.user_repository = UserRepository(self.connection)
+    def setup_class(self):
+        self.http_client = OwfHttpClient(APP_BASE_URL)
+        self.db_connector = DbConnector(DB_CONNECTION_PARAMS)
+        self.db_cleaner = DBCleaner(DB_CONNECTION_PARAMS)
 
-    def test_register(self):
-        """Регистрация нового юзера"""
-        register_response = self.client.register(SCENARIO)
-        assert register_response.status_code == 200
+    def test_success_register(self, test_data: TestContext):
+        # Arrange
+        register_data: RegisterVm = test_data.get('register')
 
-    def test_login(self):
-        """Авторизация и получение токена доступа"""
-        login_data = {
-            'email': SCENARIO['email'],
-            'password': SCENARIO['password']
-        }
+        # Act
+        response = self.http_client.register(register_data)
 
-        login_response = self.client.login(login_data)
+        # Assert
+        test_data = response.json()
+        assert response.status_code == 200
+        assert test_data["message"] == "Пользователь " + register_data.email + " успешно зарегистрирован"
+        assert_login_getAdmin(self, register_data.email)
 
-        assert login_response.status_code == 200
-
-    def test_get_user_data(self):
-        self.user_repository.get_users()
-        # print(self.user_repository.get_user_id())
-
-    # def delete_user(self):
-    #     self.user_repository.delete_user()
-
-    def teardown(self):
-        self.connection.close()
+    def teardown_class(self):
+        self.db_cleaner.delete_users()
